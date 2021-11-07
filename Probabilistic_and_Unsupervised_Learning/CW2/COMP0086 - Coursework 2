@@ -1,0 +1,280 @@
+import numpy as np
+from matplotlib import pyplot as plt
+from math import exp
+import seaborn as sns
+
+sns.set()
+
+
+class em:
+    def __init__(self, X, K, iterations):
+        self.X = X
+        self.K = K
+        self.iterations = iterations
+        # Initialise with a random D by K matrix of probabilities for each pixel d in mixture k
+        self.threshold = exp(-20)
+        self.P = np.random.rand(self.X.shape[1], K)
+        # Condition to enforce that sum of K components must be 1 by normalising against their sum
+        self.pi = np.random.rand(K)
+        self.pi = self.pi / sum(self.pi)
+        # Initialise with starting responsibility matrix in step E
+        self.resp = np.random.rand(self.X.shape[0], K)
+
+    def graph_param(self):
+        '''
+        :return: Creates plot of all the parameters grids by every mixture component
+        '''
+        fig, axs = plt.subplots(4, 3, constrained_layout=True)
+        mixture = 0
+        for row in range(4):
+            for col in range(3):
+                if mixture >= self.K:
+                    axs[row][col].remove()
+                else:
+                    axs[row][col].set_title("Mixture {} @ {:.0%}".format(mixture + 1, self.pi[mixture]))
+                    axs[row][col].imshow(np.reshape(self.P.T[mixture], (8, 8)), interpolation="None", cmap='gray')
+                    axs[row][col].axis('off')
+                mixture += 1
+        fig.show()
+
+    def graph_overall(self):
+        '''
+        :return: Weighted plot of parameters based on mixture component weights
+        '''
+        fig, axs = plt.subplots(1, 1, constrained_layout=True)
+        axs.set_title("Weighted Probabilities")
+        axs.imshow(np.reshape((self.P * self.pi).sum(axis=1), (8, 8)), interpolation="None", cmap='gray')
+        axs.axis('off')
+        fig.show()
+
+    def resp_n(self, samplen):
+        '''
+        Equation 1.01 of COMP0086 Assignment 2 Latex but in vector form
+        Calculates and returns the responsibilities for each mixture component in each image n
+        :return: K by 1 vector
+        '''
+        bern = self.P.T ** self.X[samplen] * (1 - self.P.T) ** (1 - self.X[samplen])
+        log_prod = np.log(bern + self.threshold).sum(axis=1) + np.log(self.pi)
+        sum_log_prod = self.logexpsum(log_prod)
+        resp = np.exp(log_prod - sum_log_prod)
+        return resp
+
+    @staticmethod
+    def logexpsum(vector):
+        '''
+        e.g.
+        logexpsum([1000,1000,1000])= 1001.098612288668
+        e^1000+e^1000+e^1000 = e^1001.098612288668a
+        :param vector: K by 1 vector of exp(x_1) + exp(x_2) + .... +exp(x_K)
+        :return: np.log(exp(x_1)+exp(x_2)+...)
+        '''
+        expsum = 0
+        for i in vector:
+            if expsum == 0:
+                expsum = i
+            else:
+                expsum = np.logaddexp(expsum, i)
+        return expsum
+
+    def loglikelihood(self, samplen):
+        '''
+        Equation 1.05 of COMP0086 Assignment 2 Latex but in vector form
+        :return: the loglikelihood calculated for each sample
+        '''
+        # Equation 1.02 of COMP0086 Assignment 2 Latex
+        log_prob_n = (np.log(self.pi) +
+                      np.matmul(self.X[samplen], np.log(self.P + self.threshold)) +
+                      np.matmul(1 - self.X[samplen], np.log(1 - self.P + self.threshold)))
+        # Equation 1.05 of COMP0086 Assignment 2 Latex second term
+        entropy_function = -self.resp_n(samplen) * np.log(self.resp_n(samplen) + self.threshold)
+        # Equation 1.05 of COMP0086 Assignment 2 Latex
+        loglikelihood_n_lowerbound = self.resp_n(samplen) * log_prob_n + entropy_function
+        return sum(loglikelihood_n_lowerbound)
+
+    def step_e(self):
+        '''
+        Expectation
+        :return: N by K matrix of responsibilities
+        '''
+        resp = np.array([self.resp_n(i) for i, _ in enumerate(self.X)])
+        self.resp = resp
+        # return resp
+
+    def step_m(self):
+        '''
+        Maximisation
+        :return: D by K matrix where each element is the probability of a pixel d being 1 in mixture component k
+        '''
+        total_resp = self.resp.sum(axis=0)
+        # Using matrix multiplication where we have X = N by D and resp = N by K
+        # Matching Eq1.03 but in matrix form
+        P = np.matmul(self.X.T, self.resp) / total_resp
+        # Matching Eq1.04 but in vector form
+        pi = total_resp / sum(total_resp)
+        self.P, self.pi = P, pi
+        # return P, pi
+
+    def training(self):
+        '''
+        Training iterates through and run EM subjected to threshold of difference in loglikelihood gain
+        :return:output array that is in [iteration,loglikelihood]
+        '''
+        output = []
+        for i in range(self.iterations):
+            current = sum([self.loglikelihood(i) for i in range(self.X.shape[0])])
+            self.step_e()
+            self.step_m()
+            new = sum([self.loglikelihood(i) for i in range(self.X.shape[0])])
+            output.append([i, current])
+            if new - current < self.threshold:
+                output.append([i + 1, new])
+                print("Mixture {}'s iteration number {}: Loglikelihood of {}.".format(self.K, i + 1, current))
+                break
+            if i == self.iterations - 1:
+                print("Mixture {}'s iteration number {}: Loglikelihood of {}.".format(self.K, i + 1, current))
+                continue
+        return output
+
+
+import numpy as np
+from matplotlib import pyplot as plt
+
+X = np.loadtxt('Probabilistic_and_Unsupervised_Learning/CW2/binarydigits.txt')
+summary = []
+for i in [2, 3, 4, 7, 10]:
+    learn = em(X, i, 100)
+    output = learn.training()
+    learn.graph_overall()
+    learn.graph_param()
+    x, y = list(zip(*output))[0], list(zip(*output))[1]
+    summary.append([i, output])
+    plt.figure()
+    plt.plot(x, y)
+    plt.xlabel('Iterations')
+    plt.ylabel('Loglikelihood')
+    plt.show()
+    print("Model with {} mixture components".format(i))
+    print(learn.P.mean(axis=0))
+    print(learn.resp.mean(axis=0))
+
+for i in range(len(summary)):
+    last = len(summary[i][1])
+    print("For {} mixture component model, we achieved a log likelihood of {:.2f} in {} iterations".
+          format(summary[i][0], summary[i][1][last - 1][1], summary[i][1][last - 1][0]))
+for i in range(len(summary)):
+    last = len(summary[i][1])
+    print("For {} mixture component model, log base 2 likelihood becomes {:.2f}. ".
+          format(summary[i][0], summary[i][1][last - 1][1] / np.log(2)))
+
+# Geyser Plots
+X = np.loadtxt('Probabilistic_and_Unsupervised_Learning/CW2/geyser.txt')
+
+data = X.T
+end = len(X)
+# plt.plot(data[0], data[1], 'o')
+fig, axs = plt.subplots(2, 6, constrained_layout=True, figsize=(20, 7))
+j = 0
+for i, n in enumerate(range(0, len(X), 50)):
+    axs[j][i].set_title("Duration vs Waiting Time Step {}".format(n))
+    axs[j][i].plot(data[0][1:end - n], data[1][n + 1:end], 'o')
+j = 1
+for i, n in enumerate(range(0, len(X), 50)):
+    axs[j][i].set_title("Duration vs Duration Time Step {}".format(n))
+    axs[j][i].plot(data[0][1:end - n], data[0][n + 1:end], 'o')
+plt.show()
+
+
+# Q2b
+from pprint import pprint
+
+# Note the line breaks are included for formatting purposes as string spills over
+data = 'AABBBACABBBACAAAAAAAAABBBACAAAAABACAAAAAABBBBACAAAAAAAAAAAABACABACAABBACAAABBBBACAAABACAAAABACAABACAAABBACAAAABBBBACABBACAAAAAABACABACAAABACAABBBACAAAABACABBACA'
+
+output = {i: data.count(i) for i in data}
+pprint(output)
+# {'A': 97, 'B': 42, 'C': 21}
+
+output = {}
+for pos in range(0, len(data) - 1):
+    if data[pos] + data[pos + 1] in output.keys():
+        output[data[pos] + data[pos + 1]] += 1
+    else:
+        output[data[pos] + data[pos + 1]] = 1
+pprint(output)
+# {'AA': 54, 'AB': 21, 'AC': 21, 'BA': 21, 'BB': 21, 'CA': 21}
+
+# Trying a second order relationship for the variables
+output = {}
+for pos in range(0, len(data) - 2):
+    if data[pos] + data[pos + 1] + data[pos + 2] in output.keys():
+        output[data[pos] + data[pos + 1] + data[pos + 2]] += 1
+    else:
+        output[data[pos] + data[pos + 1] + data[pos + 2]] = 1
+pprint(output)
+# {'AAA': 38,
+#  'AAB': 16,
+#  'ABA': 10,
+#  'ABB': 11,
+#  'ACA': 21,
+#  'BAC': 21,
+#  'BBA': 11,
+#  'BBB': 10,
+#  'CAA': 15,
+#  'CAB': 5}
+
+## Q4 Kalman
+from Probabilistic_and_Unsupervised_Learning.CW2.ssm_kalman import run_ssm_kalman
+X = np.loadtxt('Probabilistic_and_Unsupervised_Learning/CW2/ssm_spins.txt')
+A = np.array([[np.cos(2 * np.pi / 180.), -np.sin(2 * np.pi / 180.), 0, 0],
+              [np.sin(2 * np.pi / 180.), np.cos(2 * np.pi / 180.), 0, 0],
+              [0, 0, np.cos(2 * np.pi / 90.), -np.sin(2 * np.pi / 90.)],
+              [0, 0, np.sin(2 * np.pi / 90.), np.cos(2 * np.pi / 90.)]])
+C = np.array([[1, 0, 1, 0],
+              [0, 1, 0, 1],
+              [1, 0, 0, 1],
+              [0, 0, 1, 1],
+              [0.5, 0.5, 0.5, 0.5]])
+Q = np.identity(A.shape[0]) - A @ A.T
+R = np.identity(C.shape[0])
+y_init = np.random.rand(A.shape[0])
+q_init = np.random.rand(A.shape[0], A.shape[1])
+# Ensure that q_init is positive definite matrix
+q_init = q_init @ q_init.T
+
+logdet = lambda x: 2 * sum(np.log(np.diag(np.linalg.cholesky(x))))
+y_filt, v_filt, vj_filt, L_filt = run_ssm_kalman(X.T, y_init, q_init, A, Q, C, R, mode='filt')
+v_filt_plot = [logdet(i) for i in v_filt]
+
+y_smooth, v_smooth, vj_smooth, L_smooth = run_ssm_kalman(X.T, y_init, q_init, A, Q, C, R, mode='smooth')
+v_smooth_plot = [logdet(i) for i in v_smooth]
+
+fig, axs = plt.subplots(2, 2, constrained_layout=True)
+axs[0][0].set_title("Filtering Y")
+axs[0][0].plot(y_filt.T)
+axs[0][1].set_title("Filtering Logdet V")
+axs[0][1].plot(v_filt_plot)
+axs[1][0].set_title("Smoothing Y")
+axs[1][0].plot(y_smooth.T)
+axs[1][1].set_title("Smoothing Logdet V")
+axs[1][1].plot(v_smooth_plot)
+fig.show()
+
+def step_m(X, y, v, vj):
+    '''
+    :param X: data, [d, t_max] numpy array
+    :param y: posterior mean estimates, [k, t_max] numpy array
+    :param v: posterior variances on y_t, [t_max, k, k] numpy array
+    :param vj: posterior covariances between y_{t+1}, y_t, [t_max, k, k] numpy array
+    :return:
+    A:       latent dynamics matrix, [k, k] numpy array
+    Q:       innovariations covariance matrix, [k, k] numpy array
+    C:       output loading matrix, [d, k] numpy array
+    R:       output noise matrix, [d, d] numpy array
+    '''
+    e_ytyt = v + np.array([np.outer(y.T[i], y.T[i]) for i in range(len(y.T))])
+    e_ytm1yt = vj[1:] + np.array([np.outer(y.T[i - 1], y.T[i]) for i in range(1, len(y.T))])
+    A = e_ytm1yt[1:].sum(axis=0).dot(np.linalg.inv(e_ytyt[1:].sum(axis=0)))
+    C = X.T.dot(y.T).dot(np.linalg.inv(e_ytyt.sum(axis=0)))
+    Q = (1 / (len(X) - 1)) * (e_ytyt[1:].sum(axis=0) - e_ytm1yt[1:].dot(A.T).sum(axis=0))
+    R = (1 / len(X)) * (X.T.dot(X) - X.T.dot(y.T).dot(C.T))
+    return A, C, Q, R
