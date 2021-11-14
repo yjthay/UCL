@@ -1,0 +1,326 @@
+import numpy as np
+import random
+from copy import deepcopy
+import matplotlib.pyplot as plt
+
+
+def counter(str, pair=False):
+    '''
+    :param str: String of words
+    :param pair: True if we are looking at symbol transitions in pairs, False to count number of symbols in str
+    :return: Dictionary of counts be it pair or singleton
+    '''
+    output = {}
+    if pair:
+        for i in range(len(str) - 1):
+            if str[i] not in output.keys():
+                output[str[i]] = {str[i + 1]: 1}
+            else:
+                if str[i + 1] not in output[str[i]].keys():
+                    output[str[i]][str[i + 1]] = 1
+                else:
+                    output[str[i]][str[i + 1]] += 1
+    else:
+        for key in str:
+            if key not in output.keys():
+                output[key] = 1
+            else:
+                output[key] += 1
+    return output
+
+
+def random_sigmainv(sym, sigmainv=None):
+    '''
+    :param sym: List of symbols that are used for encoding the msg
+    :return: Dictionary of Encoding (Key) to Decode (Value)
+    '''
+    sym = deepcopy(sym)
+    if sigmainv is not None:
+        sigmainv = deepcopy(sigmainv)
+        for key in sigmainv.keys():
+            sym.remove(key)
+    else:
+        sigmainv = {}
+    r = random.sample(range(len(sym)), len(sym))
+    output = [[symbols, sym[i]] for symbols, i in zip(sym, r)]
+    for i, j in output:
+        sigmainv[i] = j
+    return sigmainv
+
+
+def simple_sigmainv(init_dict, msg):
+    '''
+    Creating a simple sigmainv based on init_dict
+    :param init_dict: Dictionary of init dict where we have characters that are more frequent
+    :param msg: String of msg to be decoded
+    :return:
+    '''
+    msg_dict = counter(msg)
+    output = {}
+    for key, ref in zip(msg_dict, init_dict):
+        output[key] = ref
+    return output
+
+
+def swap(sigmainv):
+    '''
+    Swap a random sigmainv with another random sigmainv
+    :param sigmainv: Dictionary of Encrypt (Key) to Decrypt (Value)
+    :return: Dictionary of Encoding (Key) to Decode (Value)
+    '''
+    s_1 = random.choice([key for key in sigmainv.keys()])
+    s_2 = random.choice([key for key in sigmainv.keys()])
+    # Ensures that s_1 and s_2 are different
+    while s_1 == s_2:
+        s_2 = random.choice([key for key in sigmainv.keys()])
+    # Swap index
+    deepcopy_sigmainv = deepcopy(sigmainv)
+    deepcopy_sigmainv[s_1], deepcopy_sigmainv[s_2] = deepcopy_sigmainv[s_2], deepcopy_sigmainv[s_1]
+    return deepcopy_sigmainv
+
+
+def decode(msg, sigmainv):
+    '''
+    :param msg: String of encoded msg
+    :param sigmainv: Dictionary of Encoding (Key) to Decode (Value)
+    :return: String of decoded msg
+    '''
+    output = [sigmainv[encrypt] for encrypt in msg]
+    return ''.join(output)
+
+
+def loglikelihood(msg, transit_dict):
+    '''
+    Calculates the probability of getting such a msg based on probabilities in transition dictionary
+    :param msg: String of decoded msg
+    :param transit_dict: Dictionary of Dictionary of transition probs of symbols e.g. {'a':{'b':0.1,'e':0.2},'e':{'t':0.5}}
+    :return: Float64 of loglikelihood of msg
+    '''
+    lglikelihood = 0
+    for i in range(1, len(msg)):
+        if msg[i - 1] in transit_dict.keys():
+            if msg[i] in transit_dict[msg[i - 1]].keys():
+                lglikelihood += np.log(transit_dict[msg[i - 1]][msg[i]])
+    return lglikelihood
+
+
+def accept_proposal(proposed_lg, curr_lg):
+    '''
+    :param proposed_lg: float64
+    :param curr_lg: float64
+    :return: Check if we should accept or reject the proposal swap given the 2 loglikelihoods
+    True if proposal is accepted and False if not
+    '''
+    if proposed_lg > curr_lg:
+        return True
+    else:
+        if np.random.rand() < np.exp(proposed_lg - curr_lg):
+            return True
+    return False
+
+
+def hinton(matrix, title, ax=None):
+    """
+    Draw Hinton diagram for visualizing a weight matrix.
+    Reference from
+    https://matplotlib.org/3.1.1/gallery/specialty_plots/hinton_demo.html
+    """
+    index = matrix.index
+    columns = matrix.columns
+    matrix = np.array(matrix)
+    ax = ax if ax is not None else plt.gca()
+    max_weight = 2 ** np.ceil(np.log(np.abs(matrix).max()) / np.log(2))
+
+    ax.patch.set_facecolor('gray')
+    ax.set_aspect('equal', 'box')
+    for (x, y), w in np.ndenumerate(matrix):
+        color = 'white' if w > 0 else 'black'
+        size = np.sqrt(np.abs(w) / max_weight)
+        rect = plt.Rectangle([x - size / 2, y - size / 2], size, size,
+                             facecolor=color, edgecolor=color)
+        ax.add_patch(rect)
+
+    ax.set_title(title)
+    ax.autoscale_view()
+    ax.invert_yaxis()
+    ax.set_xlabel("From")
+    ax.set_ylabel("To")
+    ax.set_xticks(np.arange(len(index)))
+    ax.set_yticks(np.arange(len(columns)))
+    ax.set_xticklabels(list(index))
+    ax.set_yticklabels(list(columns))
+    ax.grid()
+
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# from Assignment3.MH import counter, swap, decode, random_sigmainv, loglikelihood, hinton, accept_proposal
+
+with open('Probabilistic_and_Unsupervised_Learning/CW3/symbols.txt') as f:
+    sym = [line.rstrip() for line in f]
+    sym = [' ' if c == '' else c for c in sym]
+with open('Probabilistic_and_Unsupervised_Learning/CW3/message.txt') as f:
+    msg = f.readlines()[0]
+with open('Probabilistic_and_Unsupervised_Learning/CW3/war-and-peace.txt', encoding="utf8") as f:
+    wnp = f.read()
+    wnp = wnp.replace("\n", "").lower()
+unique = ''.join(set(wnp))
+for char in unique:
+    if char not in sym and char != " ":
+        wnp = wnp.replace(char, "")
+
+'''
+Create a dictionary that counts the transition of each characters to the next 
+as well as the number of times the character appears in the text
+'''
+transit_dict = counter(wnp, True)
+init_dict = counter(wnp, False)
+
+'''
+Place the transition dictionary into a DataFrame and normalise it.
+'''
+df_transit_matrix = pd.DataFrame(transit_dict).fillna(0)
+normalizer = np.einsum('ij->', df_transit_matrix)
+df_transit_matrix = df_transit_matrix / normalizer
+threshold = np.exp(-10)
+x = 0
+
+'''
+Create P_inf by using P_new = P_init^T @ P_old where P_init is a uniform random distribution
+'''
+p_init = np.random.rand(df_transit_matrix.shape[0], df_transit_matrix.shape[1])
+p = df_transit_matrix.copy(deep=True)
+p_new = np.einsum('ij,ik->jk', p_init, p)
+# p_new = np.einsum('ij,ik->jk', p_init, p)
+while x > threshold:
+    p_new = np.einsum('ij,ik->jk', p_new, p)
+    x = np.linalg.norm(p - p_new)
+    p = p_new
+df_transit_matrix = p.copy(deep=True)
+
+'''
+Create normalized data chart for how character distribution in War and Peace
+'''
+df_init = pd.DataFrame(init_dict, index=init_dict.keys()).iloc[:1:].T
+normalizer = np.einsum('ij->', df_init)
+df_init = df_init / normalizer
+df_init.columns = ['Prob']
+
+'''
+Plot Hinton of Transition Prob and BarChart of character distribution 
+'''
+fig, axs_transit = plt.subplots(1, 1, constrained_layout=True)
+hinton(df_transit_matrix, "Transition Matrix", axs_transit)
+fig, axs_init = plt.subplots(1, 1, constrained_layout=True)
+axs_init.bar(df_init.index, df_init['Prob'])
+axs_init.set_title('Probability of Symbol')
+axs_init.set_ylabel('Prob')
+top10 = df_init.sort_values(by="Prob", ascending=False).iloc[:10, :]
+bot10 = df_init.sort_values(by="Prob", ascending=True).iloc[:10, :]
+print(pd.DataFrame.join(top10.reset_index(), bot10.reset_index(), lsuffix='_Top10', rsuffix='_Bot10'))
+
+'''
+Simple analysis of the data structure and frequency of the encoded msg
+'''
+msg_dict = counter(msg)
+m = pd.DataFrame(msg_dict, index=range(len(msg_dict))).iloc[0].sort_values(ascending=False)
+
+'''
+Decode message and print our decoded message every 500 iterations
+'''
+sigmainv = random_sigmainv(sym)
+for iter in range(int(10001)):
+    curr_msg = decode(msg, sigmainv)
+    curr_lg = loglikelihood(curr_msg, transit_dict)
+    proposed_sigmainv = swap(sigmainv)
+    proposed_msg = decode(msg, proposed_sigmainv)
+    proposed_lg = loglikelihood(proposed_msg, transit_dict)
+    if accept_proposal(proposed_lg, curr_lg):
+        sigmainv = proposed_sigmainv
+    if iter % 500 == 0:
+        print("\item Run {} has loglikelihood of {:.2f}. \\\\Message is \\emph{{\"{}\"}}".format(iter, curr_lg,
+                                                                                                 decode(msg, sigmainv)[
+                                                                                                 :60]))
+
+
+# pickle.dump(sigmainv, open( "sigmainv.p", "wb" ))
+
+def update_params(self):
+    """
+    Samples theta and phi, then computes the distribution of
+    z_id and samples counts A_dk, B_kw from it
+    """
+    # todo: sample theta and phi
+    # Using MAP
+    # self.phi = np.einsum('kw,k->kw', (self.B_kw + self.beta - 1),
+    #                      1 / (self.B_kw.sum(axis=1) + self.n_words * self.beta - self.n_words * 1))
+    # self.theta = np.einsum('dk,d->dk', (self.A_dk + self.alpha - 1),
+    #                        1 / (self.A_dk.sum(axis=1) + self.n_topics * self.alpha - self.n_topics * 1))
+    for topic_ix, topic in enumerate(self.phi):
+        self.phi[topic_ix] = np.random.dirichlet(self.B_kw[topic_ix, :] + self.beta)
+    for doc_ix, doc in enumerate(self.theta):
+        self.theta[doc_ix] = np.random.dirichlet(self.A_dk[doc_ix, :] + self.alpha)
+    self.update_topic_doc_words()
+    self.sample_counts()
+
+
+def sample_counts(self):
+    """
+    For each document and each word, samples from z_id|x_id, theta, phi
+    and adds the results to the counts A_dk and B_kw
+    """
+    self.A_dk.fill(0)
+    self.B_kw.fill(0)
+
+    if self.do_test:
+        self.A_dk_test.fill(0)
+        self.B_kw_test.fill(0)
+
+    # todo: sample a topic for each (doc, word) and update A_dk, B_kw correspondingly
+    for doc_ix, doc in enumerate(self.docs_words):
+        for word_ix, word in enumerate(self.docs_words[doc_ix]):
+            # select most likely topic for each word in each doc based on the maximum probability from the n_topics
+            topic_ix = np.random.multinomial(1, self.topic_doc_words_distr[:, doc_ix, word_ix]).argmax()
+            # print("Document {}'s {}th word is allocated to topic {}".format(doc_ix, word_ix, topic_ix))
+            # Generate A_dk and B_kw based on self.topic_doc_words_distr
+            self.A_dk[doc_ix][topic_ix] += 1
+            self.B_kw[topic_ix][word_ix] += 1
+    if self.do_test:
+        for doc_ix, doc in enumerate(self.docs_words_test):
+            for word_ix, word in enumerate(self.docs_words_test[doc_ix]):
+                # select most likely topic for each word in each doc based on the maximum probability from the n_topics
+                topic_ix = np.random.multinomial(1, self.topic_doc_words_distr[:, doc_ix, word_ix]).argmax()
+                # print("Document {}'s {}th word is allocated to topic {}".format(doc_ix, word_ix, topic_ix))
+                # Generate A_dk and B_kw based on self.topic_doc_words_distr
+                self.A_dk_test[doc_ix][topic_ix] += 1
+                self.B_kw_test[topic_ix][word_ix] += 1
+
+
+def update_loglike(self, iteration):
+    """
+    Updates loglike of the data, omitting the constant additive term
+    with Gamma functions of hyperparameters
+    """
+    # todo: implement log-like
+    # Hint: use scipy.special.gammaln (imported as gammaln) for log(gamma)
+    lg_beta_func = lambda param: np.sum(gammaln(param)) - gammaln(np.sum(param))
+
+    for topic in range(self.n_topics):
+        self.loglike[iteration] += lg_beta_func(self.B_kw[topic] + self.beta)
+        # self.loglike[iteration] -= lg_beta_func(self.beta)
+
+    for doc in range(self.n_docs):
+        self.loglike[iteration] += lg_beta_func(self.A_dk[doc] + self.alpha)
+        # self.loglike[iteration] -= lg_beta_func(self.alpha)
+
+    if self.do_test:
+        for topic in range(self.n_topics):
+            self.loglike_test[iteration] += lg_beta_func(self.B_kw_test[topic] + self.beta)
+            self.loglike_test[iteration] -= lg_beta_func(self.beta)
+
+        for doc in range(self.n_docs):
+            self.loglike_test[iteration] += lg_beta_func(self.A_dk_test[doc] + self.alpha)
+            self.loglike_test[iteration] -= lg_beta_func(self.alpha)
+    pass
