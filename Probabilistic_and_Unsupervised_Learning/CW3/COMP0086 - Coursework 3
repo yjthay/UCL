@@ -213,10 +213,14 @@ Plot Hinton of Transition Prob and BarChart of character distribution
 '''
 fig, axs_transit = plt.subplots(1, 1, constrained_layout=True)
 hinton(df_transit_matrix, "Transition Matrix", axs_transit)
+fig.show()
+
 fig, axs_init = plt.subplots(1, 1, constrained_layout=True)
 axs_init.bar(df_init.index, df_init['Prob'])
 axs_init.set_title('Probability of Symbol')
 axs_init.set_ylabel('Prob')
+fig.show()
+
 top10 = df_init.sort_values(by="Prob", ascending=False).iloc[:10, :]
 bot10 = df_init.sort_values(by="Prob", ascending=True).iloc[:10, :]
 print(pd.DataFrame.join(top10.reset_index(), bot10.reset_index(), lsuffix='_Top10', rsuffix='_Bot10'))
